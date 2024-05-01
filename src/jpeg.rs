@@ -110,25 +110,6 @@ fn get_jpeg_sections(data: &Vec<u8>) -> Vec<(JpegMarker, Vec<u8>)> {
             cursor.read_exact(&mut header).unwrap();
 
             if header[0] != 0xFF {
-                println!(
-                    "D: {:?}",
-                    sections
-                        .iter()
-                        .map(|(m, _)| *m)
-                        .collect::<Vec<JpegMarker>>()
-                );
-                println!(
-                    "D: {}",
-                    sections
-                        .iter()
-                        .map(|(m, _)| format!("{:#04x}", <JpegMarker as Into<u8>>::into(*m)))
-                        .collect::<Vec<String>>()
-                        .join(", ")
-                );
-                let mut sus = [0_u8; 48];
-                cursor.seek(SeekFrom::Current(-12)).unwrap();
-                cursor.read_exact(&mut sus).unwrap();
-                println!("{:?}", sus);
                 panic!("Expected 0xFF but got {:#04x}", header[0]);
             }
 
@@ -147,8 +128,7 @@ fn get_jpeg_sections(data: &Vec<u8>) -> Vec<(JpegMarker, Vec<u8>)> {
 
         // The SOS marker's length is only for its "header", so we need to collect
         // the compressed data after until the next marker
-        if [JpegMarker::SOS].contains(&marker) {
-            println!("{:?} detected... scanning forward", marker);
+        if marker == JpegMarker::SOS {
             let mut buf = [0_u8; 2];
 
             loop {
