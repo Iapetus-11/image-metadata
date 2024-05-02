@@ -213,9 +213,9 @@ pub enum TiffTag {
     Copyright(String),
     ExposureTime(String),
     FNumber(String),
-    EXIF_IFD_Pointer(u32),
+    ExifIfdPointer(u32),
     ExposureProgram(String),
-    GPS_IFD_Pointer(u32),
+    GpsIfdPointer(u32),
     ExifVersion(String),
     DateTimeOriginal(String),
     DateTimeDigitized(String),
@@ -370,7 +370,7 @@ impl TryFrom<IFDEntry> for TiffTag {
             33432 => Ok(TiffTag::Copyright(entry.try_into()?)),
             33434 => Ok(TiffTag::ExposureTime(get_rational_repr_from_ifd_entry(entry)?)),
             33437 => Ok(TiffTag::FNumber(get_rational_repr_from_ifd_entry(entry)?)),
-            34665 => Ok(TiffTag::EXIF_IFD_Pointer(entry.try_into()?)),
+            34665 => Ok(TiffTag::ExifIfdPointer(entry.try_into()?)),
             34850 => Ok(TiffTag::ExposureProgram(match <IFDEntry as TryInto<u16>>::try_into(entry)? {
                 0 => "Not defined",
                 1 => "Manual",
@@ -383,7 +383,7 @@ impl TryFrom<IFDEntry> for TiffTag {
                 8 => "Landscape mode (for landscape photos with the background in focus)",
                 _ => "Invalid",
             }.to_string())),
-            34853 => Ok(TiffTag::GPS_IFD_Pointer(entry.try_into()?)),
+            34853 => Ok(TiffTag::GpsIfdPointer(entry.try_into()?)),
             36864 => Ok(TiffTag::ExifVersion(get_string_from_entry_with_undefined_values(entry)?)),
             36867 => Ok(TiffTag::DateTimeOriginal(entry.try_into()?)),
             36868 => Ok(TiffTag::DateTimeDigitized(entry.try_into()?)),
@@ -798,11 +798,11 @@ pub fn read_tiff(cursor: &mut Cursor<Vec<u8>>) -> Result<Tiff, TiffError> {
     let mut extra_found_entries: Vec<IFDEntry> = vec![];
     for tag in &tags {
         match tag {
-            TiffTag::EXIF_IFD_Pointer(ifd_ptr) => {
+            TiffTag::ExifIfdPointer(ifd_ptr) => {
                 cursor.set_position(*ifd_ptr as u64);
                 extra_found_entries.extend(read_ifd(cursor, &endianness)?);
             }
-            TiffTag::GPS_IFD_Pointer(ifd_ptr) => {
+            TiffTag::GpsIfdPointer(ifd_ptr) => {
                 cursor.set_position(*ifd_ptr as u64);
                 extra_found_entries.extend(read_ifd(cursor, &endianness)?);
             }

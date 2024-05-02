@@ -17,5 +17,7 @@ fn main() {
     if file_type == FileKind::JPEG {
         let jpeg = jpeg::read_jpeg(file_data).unwrap();
         println!("{:?}", jpeg);
+    } else {
+        panic!("Unknown or unsupported file type :/ ");
     }
 }

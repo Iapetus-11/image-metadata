@@ -1,7 +1,5 @@
 use std::io::{Cursor, Read, Seek, SeekFrom};
 
-use crate::tiff::read_ifd;
-
 use super::tiff;
 
 #[derive(Debug)]
