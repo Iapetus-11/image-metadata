@@ -47,7 +47,7 @@ impl IFDEntry {
         match self.values.len() {
             1 => Ok(self.values[0]),
             count => Err(TiffError(
-                format!("Expected only one value (got {})", count),
+                format!("[Tag {}] Expected exactly one value (got {})", self.tag, count),
             )),
         }
     }
@@ -64,7 +64,7 @@ impl TryInto<String> for IFDEntry {
                 IFDEntryValue::ASCII(b) => chars.push(b),
                 _ => {
                     return Err(TiffError(
-                        format!("Expected only ASCII values (got {:?})", value),
+                        format!("[Tag {}] Expected only ASCII values (got {:?})", self.tag, value),
                     ))
                 }
             }
@@ -81,7 +81,7 @@ impl TryInto<u8> for IFDEntry {
         match self.get_single_value()? {
             IFDEntryValue::BYTE(v) => Ok(v),
             _ => Err(TiffError(
-                format!("Expected value to be BYTE (got {:?})", self.values[0]),
+                format!("[Tag {}] Expected value to be BYTE (got {:?})", self.tag, self.values[0]),
             )),
         }
     }
@@ -101,8 +101,9 @@ impl TryInto<Vec<u8>> for IFDEntry {
                 _ => {
                     return Err(TiffError(
                         format!(
-                            "Expected all values to be BYTE/ASCII/UNDEFINED (got {:?})",
-                            v
+                            "[Tag {}] Expected all values to be BYTE/ASCII/UNDEFINED (got {:?})",
+                            self.tag,
+                            v,
                         ),
                     ))
                 }
@@ -120,7 +121,7 @@ impl TryInto<u16> for IFDEntry {
         match self.get_single_value()? {
             IFDEntryValue::SHORT(v) => Ok(v),
             _ => Err(TiffError(
-                format!("Expected value to be SHORT (got {:?})", self.values[0]),
+                format!("[Tag {}] Expected value to be SHORT (got {:?})", self.tag, self.values[0]),
             )),
         }
     }
@@ -133,7 +134,7 @@ impl TryInto<u32> for IFDEntry {
         match self.get_single_value()? {
             IFDEntryValue::LONG(v) => Ok(v),
             _ => Err(TiffError(
-                format!("Expected value to be LONG (got {:?})", self.values[0]),
+                format!("[Tag {}] Expected value to be LONG (got {:?})", self.tag, self.values[0]),
             )),
         }
     }
@@ -147,11 +148,9 @@ impl TryInto<f64> for IFDEntry {
             IFDEntryValue::RATIONAL(a, b) => Ok((a as f64) / (b as f64)),
             IFDEntryValue::SRATIONAL(a, b) => Ok((a as f64) / (b as f64)),
             IFDEntryValue::DOUBLE(v) => Ok(v),
-            v => {
-                return Err(TiffError(
-                    format!("Expected value to be RATIONAL/SRATIONAL/DOUBLE (got {:?})", v),
-                ))
-            }
+            v => Err(TiffError(
+                    format!("[Tag {}] Expected value to be RATIONAL/SRATIONAL/DOUBLE (got {:?})", self.tag, v),
+            ))
         }
     }
 }
@@ -253,6 +252,16 @@ pub enum TiffTag {
     SubjectDistanceRange(String),
     
     // This enum is incomplete and includes tags I found interesting/encountered while testing
+}
+
+#[macro_export]
+macro_rules! get_tag_value {
+    ($tiff_tags:expr, $tag_variant:path) => {
+        $tiff_tags.iter().find_map(|tag| match tag {
+            $tag_variant(value) => Some(value),
+            _ => None,
+        })
+    };
 }
 
 fn get_rational_repr_from_ifd_entry(entry: IFDEntry) -> Result<String, TiffError> {
@@ -577,15 +586,15 @@ fn read_ifd_entry_values(
             3 => {
                 let data = [buf[0], buf[1]];
                 IFDEntryValue::SHORT(match endianness {
-                    Endianness::BIG => u16::from_be_bytes(data),
-                    Endianness::LITTLE => u16::from_le_bytes(data),
+                    Endianness::Big => u16::from_be_bytes(data),
+                    Endianness::Little => u16::from_le_bytes(data),
                 })
             }
             4 => {
                 let data = [buf[0], buf[1], buf[2], buf[3]];
                 IFDEntryValue::LONG(match endianness {
-                    Endianness::BIG => u32::from_be_bytes(data),
-                    Endianness::LITTLE => u32::from_le_bytes(data),
+                    Endianness::Big => u32::from_be_bytes(data),
+                    Endianness::Little => u32::from_le_bytes(data),
                 })
             }
             5 => {
@@ -594,8 +603,8 @@ fn read_ifd_entry_values(
                     [buf[4], buf[5], buf[6], buf[7]],
                 );
                 let (a, b) = match endianness {
-                    Endianness::BIG => (u32::from_be_bytes(data.0), u32::from_be_bytes(data.1)),
-                    Endianness::LITTLE => (u32::from_le_bytes(data.0), u32::from_le_bytes(data.1)),
+                    Endianness::Big => (u32::from_be_bytes(data.0), u32::from_be_bytes(data.1)),
+                    Endianness::Little => (u32::from_le_bytes(data.0), u32::from_le_bytes(data.1)),
                 };
 
                 IFDEntryValue::RATIONAL(a, b)
@@ -605,15 +614,15 @@ fn read_ifd_entry_values(
             8 => {
                 let data = [buf[0], buf[1]];
                 IFDEntryValue::SSHORT(match endianness {
-                    Endianness::BIG => i16::from_be_bytes(data),
-                    Endianness::LITTLE => i16::from_le_bytes(data),
+                    Endianness::Big => i16::from_be_bytes(data),
+                    Endianness::Little => i16::from_le_bytes(data),
                 })
             }
             9 => {
                 let data = [buf[0], buf[1], buf[2], buf[3]];
                 IFDEntryValue::SLONG(match endianness {
-                    Endianness::BIG => i32::from_be_bytes(data),
-                    Endianness::LITTLE => i32::from_be_bytes(data),
+                    Endianness::Big => i32::from_be_bytes(data),
+                    Endianness::Little => i32::from_be_bytes(data),
                 })
             }
             10 => {
@@ -622,8 +631,8 @@ fn read_ifd_entry_values(
                     [buf[4], buf[5], buf[6], buf[7]],
                 );
                 let (a, b) = match endianness {
-                    Endianness::BIG => (i32::from_be_bytes(data.0), i32::from_be_bytes(data.1)),
-                    Endianness::LITTLE => (i32::from_le_bytes(data.0), i32::from_le_bytes(data.1)),
+                    Endianness::Big => (i32::from_be_bytes(data.0), i32::from_be_bytes(data.1)),
+                    Endianness::Little => (i32::from_le_bytes(data.0), i32::from_le_bytes(data.1)),
                 };
 
                 IFDEntryValue::SRATIONAL(a, b)
@@ -631,8 +640,8 @@ fn read_ifd_entry_values(
             11 => {
                 let data = [buf[0], buf[1], buf[2], buf[3]];
                 IFDEntryValue::FLOAT(match endianness {
-                    Endianness::BIG => f32::from_be_bytes(data),
-                    Endianness::LITTLE => f32::from_le_bytes(data),
+                    Endianness::Big => f32::from_be_bytes(data),
+                    Endianness::Little => f32::from_le_bytes(data),
                 })
             }
             12 => {
@@ -640,8 +649,8 @@ fn read_ifd_entry_values(
                     buf[0], buf[1], buf[2], buf[3], buf[4], buf[5], buf[6], buf[7],
                 ];
                 IFDEntryValue::DOUBLE(match endianness {
-                    Endianness::BIG => f64::from_be_bytes(data),
-                    Endianness::LITTLE => f64::from_le_bytes(data),
+                    Endianness::Big => f64::from_be_bytes(data),
+                    Endianness::Little => f64::from_le_bytes(data),
                 })
             }
             unknown => return Err(TiffError(format!("Encountered unknown TIFF value type: {}", unknown))),
@@ -656,8 +665,8 @@ pub fn read_ifd_entry(cursor: &mut Cursor<Vec<u8>>, endianness: &Endianness) -> 
         let mut buf = [0_u8; 2];
         cursor.read_exact(&mut buf).unwrap();
         match endianness {
-            Endianness::BIG => u16::from_be_bytes(buf),
-            Endianness::LITTLE => u16::from_le_bytes(buf),
+            Endianness::Big => u16::from_be_bytes(buf),
+            Endianness::Little => u16::from_le_bytes(buf),
         }
     };
 
@@ -665,8 +674,8 @@ pub fn read_ifd_entry(cursor: &mut Cursor<Vec<u8>>, endianness: &Endianness) -> 
         let mut buf = [0_u8; 2];
         cursor.read_exact(&mut buf).unwrap();
         match endianness {
-            Endianness::BIG => u16::from_be_bytes(buf),
-            Endianness::LITTLE => u16::from_le_bytes(buf),
+            Endianness::Big => u16::from_be_bytes(buf),
+            Endianness::Little => u16::from_le_bytes(buf),
         }
     };
 
@@ -674,8 +683,8 @@ pub fn read_ifd_entry(cursor: &mut Cursor<Vec<u8>>, endianness: &Endianness) -> 
         let mut buf = [0_u8; 4];
         cursor.read_exact(&mut buf).unwrap();
         match endianness {
-            Endianness::BIG => u32::from_be_bytes(buf),
-            Endianness::LITTLE => u32::from_le_bytes(buf),
+            Endianness::Big => u32::from_be_bytes(buf),
+            Endianness::Little => u32::from_le_bytes(buf),
         }
     } as usize;
 
@@ -690,8 +699,8 @@ pub fn read_ifd_entry(cursor: &mut Cursor<Vec<u8>>, endianness: &Endianness) -> 
             let mut buf = [0_u8; 4];
             cursor.read_exact(&mut buf).unwrap();
             match endianness {
-                Endianness::BIG => u32::from_be_bytes(buf),
-                Endianness::LITTLE => u32::from_le_bytes(buf),
+                Endianness::Big => u32::from_be_bytes(buf),
+                Endianness::Little => u32::from_le_bytes(buf),
             }
         };
         cursor.set_position(value_offset as u64)
@@ -710,8 +719,8 @@ pub fn read_ifd(cursor: &mut Cursor<Vec<u8>>, endianness: &Endianness) -> Result
         let mut buf = [0_u8; 2];
         cursor.read_exact(&mut buf).unwrap();
         match endianness {
-            Endianness::BIG => u16::from_be_bytes(buf),
-            Endianness::LITTLE => u16::from_le_bytes(buf),
+            Endianness::Big => u16::from_be_bytes(buf),
+            Endianness::Little => u16::from_le_bytes(buf),
         }
     };
 
@@ -749,8 +758,8 @@ pub fn read_tiff(cursor: &mut Cursor<Vec<u8>>) -> Result<Tiff, TiffError> {
         let mut data = [0_u8; 2];
         cursor.read_exact(&mut data).unwrap();
         match data {
-            [0x4D, 0x4D] => Endianness::BIG,
-            [0x49, 0x49] => Endianness::LITTLE,
+            [0x4D, 0x4D] => Endianness::Big,
+            [0x49, 0x49] => Endianness::Little,
             unknown => return Err(TiffError(format!(
                 "Expected MM or II but got {:?} instead",
                 String::from_utf8_lossy(&unknown),
@@ -762,8 +771,8 @@ pub fn read_tiff(cursor: &mut Cursor<Vec<u8>>) -> Result<Tiff, TiffError> {
         let mut data = [0_u8; 2];
         cursor.read_exact(&mut data).unwrap();
         match endianness {
-            Endianness::BIG => u16::from_be_bytes(data),
-            Endianness::LITTLE => u16::from_le_bytes(data),
+            Endianness::Big => u16::from_be_bytes(data),
+            Endianness::Little => u16::from_le_bytes(data),
         }
     };
     if magic_number != 42 {
@@ -778,8 +787,8 @@ pub fn read_tiff(cursor: &mut Cursor<Vec<u8>>) -> Result<Tiff, TiffError> {
             let mut buf = [0_u8; 4];
             cursor.read_exact(&mut buf).unwrap();
             match endianness {
-                Endianness::BIG => u32::from_be_bytes(buf),
-                Endianness::LITTLE => u32::from_le_bytes(buf),
+                Endianness::Big => u32::from_be_bytes(buf),
+                Endianness::Little => u32::from_le_bytes(buf),
             }
         };
 

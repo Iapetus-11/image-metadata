@@ -89,7 +89,7 @@ impl Into<u8> for JpegMarker {
     }
 }
 
-fn get_jpeg_sections(data: &Vec<u8>) -> Vec<(JpegMarker, Vec<u8>)> {
+fn get_jpeg_sections(data: &[u8]) -> Vec<(JpegMarker, Vec<u8>)> {
     let mut cursor = Cursor::new(data);
     cursor.seek(SeekFrom::Start(2)).unwrap();
 
@@ -134,9 +134,10 @@ fn get_jpeg_sections(data: &Vec<u8>) -> Vec<(JpegMarker, Vec<u8>)> {
                 if cursor.read(&mut buf[1..]).unwrap() == 0 {
                     break;
                 }
-                
+
                 // Skip forward till we find a marker which isn't 0xFF or a restart marker (0xD0-0xD7)
-                if buf[0] == 0xFF && ![0, 0xFF].contains(&buf[1]) && !(0xD0..0xD8).contains(&buf[1]) {
+                if buf[0] == 0xFF && ![0, 0xFF].contains(&buf[1]) && !(0xD0..0xD8).contains(&buf[1])
+                {
                     cursor.seek(SeekFrom::Current(-2)).unwrap();
                     break;
                 }
@@ -151,11 +152,11 @@ fn get_jpeg_sections(data: &Vec<u8>) -> Vec<(JpegMarker, Vec<u8>)> {
     sections
 }
 
-fn parse_exif_section(data: &Vec<u8>) -> Result<tiff::Tiff, JpegError> {
+fn parse_exif_section(data: &[u8]) -> Result<tiff::Tiff, JpegError> {
     if String::from_utf8_lossy(&data[0..4]) != "Exif" {
         return Err(JpegError(format!(
             "Expected 'Exif' but got {} instead",
-            String::from_utf8_lossy(&data[0..4].to_vec())
+            String::from_utf8_lossy(&data[0..4])
         )));
     }
 
@@ -174,15 +175,16 @@ fn parse_exif_section(data: &Vec<u8>) -> Result<tiff::Tiff, JpegError> {
     }
 }
 
-pub fn read_jpeg(data: Vec<u8>) -> Result<Jpeg, JpegError> {
-    let sections = get_jpeg_sections(&data);
+pub fn read_jpeg(data: &[u8]) -> Result<Jpeg, JpegError> {
+    let sections = get_jpeg_sections(data);
 
-    let exif_section = sections
+    let data_section = sections
         .iter()
         .filter(|(m, _)| m == &JpegMarker::APP1)
         .map(|(_, d)| d)
         .next();
-    let exif = match exif_section {
+
+    let exif = match data_section {
         Some(data) => Some(parse_exif_section(data)?),
         None => None,
     };
@@ -194,4 +196,144 @@ pub fn read_jpeg(data: Vec<u8>) -> Result<Jpeg, JpegError> {
         .next();
 
     Ok(Jpeg { comment, exif })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::read_jpeg;
+    use crate::{
+        get_tag_value,
+        tiff::{Tiff, TiffTag},
+        utils::Endianness,
+    };
+    use std::fs;
+
+    #[test]
+    fn test_read_painttool_sample() {
+        let data = fs::read("test_images/PaintTool_sample.jpeg").unwrap();
+
+        let jpeg = read_jpeg(&data).unwrap();
+        let exif_data = jpeg.exif.unwrap();
+
+        assert!(jpeg.comment.is_none());
+
+        assert_eq!(exif_data.endianness, Endianness::Little);
+
+        assert_eq!(
+            get_tag_value!(exif_data.tags, TiffTag::Software).unwrap(),
+            "GIMP 2.4.5",
+        );
+
+        assert_eq!(
+            *get_tag_value!(exif_data.tags, TiffTag::PixelXDimension).unwrap(),
+            88,
+        );
+
+        assert_eq!(
+            *get_tag_value!(exif_data.tags, TiffTag::PixelYDimension).unwrap(),
+            100,
+        );
+    }
+
+    #[test]
+    fn test_read_test9() {
+        let data = fs::read("test_images/test9.jpeg").unwrap();
+        let jpeg = read_jpeg(&data).unwrap();
+        let exif_data = jpeg.exif.unwrap();
+
+        assert_eq!(exif_data.endianness, Endianness::Little);
+
+        assert_eq!(
+            get_tag_value!(exif_data.tags, TiffTag::Make).unwrap(),
+            "NIKON"
+        );
+
+        assert_eq!(
+            get_tag_value!(exif_data.tags, TiffTag::Model).unwrap(),
+            "COOLPIX P510"
+        );
+
+        assert_eq!(
+            get_tag_value!(exif_data.tags, TiffTag::Software).unwrap(),
+            "COOLPIX P510   V1.0"
+        );
+
+        assert_eq!(
+            get_tag_value!(exif_data.tags, TiffTag::ExposureMode).unwrap(),
+            "Auto exposure"
+        );
+
+        assert_eq!(
+            get_tag_value!(exif_data.tags, TiffTag::DigitalZoomRatio).unwrap(),
+            "0/100"
+        );
+    }
+
+    #[test]
+    fn test_no_exif_only_comment() {
+        let data = fs::read("test_images/only_comment.jpg").unwrap();
+        let jpeg = read_jpeg(&data).unwrap();
+
+        assert!(jpeg.exif.is_none());
+
+        assert_eq!(
+            jpeg.comment,
+            Some("..and henceforth, shall he be named Frank, for he is a pumpkin.".to_string())
+        );
+    }
+
+    #[test]
+    fn test_gps_data() {
+        let data = fs::read("test_images/gps.jpeg").unwrap();
+        let jpeg = read_jpeg(&data).unwrap();
+
+        let exif_data = jpeg.exif.unwrap();
+
+        assert_eq!(exif_data.endianness, Endianness::Little);
+
+        assert_eq!(
+            get_tag_value!(exif_data.tags, TiffTag::GPSLatitudeRef).unwrap(),
+            "N",
+        );
+
+        assert_eq!(
+            *get_tag_value!(exif_data.tags, TiffTag::GPSLatitude).unwrap(),
+            [43.0, 28.0, 1.76399999],
+        );
+
+        assert_eq!(
+            get_tag_value!(exif_data.tags, TiffTag::GPSLongitudeRef).unwrap(),
+            "E",
+        );
+
+        assert_eq!(
+            *get_tag_value!(exif_data.tags, TiffTag::GPSLongitude).unwrap(),
+            [11.0, 53.0, 7.42199999],
+        );
+
+        assert_eq!(
+            get_tag_value!(exif_data.tags, TiffTag::GPSAltitudeRef).unwrap(),
+            "Above sea level",
+        );
+
+        assert_eq!(
+            *get_tag_value!(exif_data.tags, TiffTag::GPSTimeStamp).unwrap(),
+            [14.0, 28.0, 17.24],
+        );
+
+        assert_eq!(
+            get_tag_value!(exif_data.tags, TiffTag::GPSSatellites).unwrap(),
+            "06",
+        );
+
+        assert_eq!(
+            get_tag_value!(exif_data.tags, TiffTag::GPSMapDatum).unwrap(),
+            "WGS-84   ",
+        );
+
+        assert_eq!(
+            get_tag_value!(exif_data.tags, TiffTag::GPSDateStamp).unwrap(),
+            "2008:10:23",
+        )
+    }
 }
