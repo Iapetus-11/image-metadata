@@ -29,3 +29,25 @@ pub fn vec_to_array<T, const N: usize>(vec: Vec<T>) -> Result<[T; N], String> wh
         Err(vec) => Err(format!("Expected Vec of length {}, but got {}", N, vec.len())),
     }
 }
+
+#[macro_export]
+macro_rules! unpack {
+    ($data:expr, $type:ty, $endianness:path) => {
+        match $endianness {
+            crate::utils::Endianness::Little => <$type>::from_le_bytes($data),
+            crate::utils::Endianness::Big => <$type>::from_be_bytes($data),
+        }
+    };
+}
+
+#[macro_export]
+macro_rules! read_unpack {
+    ($cursor:expr, $type:ty, $endianness:path) => {
+        {
+            let mut buf = [0_u8; (<$type>::BITS / 8) as usize];
+            $cursor.read_exact(&mut buf).unwrap();
+
+            crate::unpack!(buf, $type, $endianness)
+        }
+    };
+}

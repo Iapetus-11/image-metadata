@@ -1,5 +1,7 @@
 use std::io::{Cursor, Read, Seek, SeekFrom};
 
+use crate::{read_unpack, tiff::Tiff, utils::Endianness};
+
 use super::tiff;
 
 #[derive(Debug)]
@@ -9,6 +11,7 @@ pub struct JpegError(pub String);
 pub struct Jpeg {
     pub comment: Option<String>,
     pub exif: Option<tiff::Tiff>,
+    pub xmp: Option<String>,
 }
 
 // This enum is very incomplete and only contains some markers I encountered when testing
@@ -114,12 +117,8 @@ fn get_jpeg_sections(data: &[u8]) -> Vec<(JpegMarker, Vec<u8>)> {
             header[1]
         });
 
-        size = {
-            let mut buf = [0_u8; 2];
-            cursor.read_exact(&mut buf).unwrap();
-            u16::from_be_bytes(buf)
-        } as usize
-            - 2; // -2 because the size includes the size bytes
+        // -2 because the size includes the size bytes
+        let size = read_unpack!(cursor, u16, Endianness::Big) as usize - 2;
 
         let mut section_data: Vec<u8> = vec![0; size];
         cursor.read_exact(&mut section_data).unwrap();
@@ -152,8 +151,8 @@ fn get_jpeg_sections(data: &[u8]) -> Vec<(JpegMarker, Vec<u8>)> {
     sections
 }
 
-fn parse_exif_section(data: &[u8]) -> Result<tiff::Tiff, JpegError> {
-    if String::from_utf8_lossy(&data[0..4]) != "Exif" {
+fn read_exif_section(data: &[u8]) -> Result<tiff::Tiff, JpegError> {
+    if data[0..4] != *b"Exif" {
         return Err(JpegError(format!(
             "Expected 'Exif' but got {} instead",
             String::from_utf8_lossy(&data[0..4])
@@ -178,16 +177,26 @@ fn parse_exif_section(data: &[u8]) -> Result<tiff::Tiff, JpegError> {
 pub fn read_jpeg(data: &[u8]) -> Result<Jpeg, JpegError> {
     let sections = get_jpeg_sections(data);
 
-    let data_section = sections
+    let app1_section = sections
         .iter()
         .filter(|(m, _)| m == &JpegMarker::APP1)
         .map(|(_, d)| d)
         .next();
 
-    let exif = match data_section {
-        Some(data) => Some(parse_exif_section(data)?),
-        None => None,
-    };
+    let mut exif: Option<Tiff> = None;
+    let mut xmp: Option<String> = None;
+    match app1_section {
+        Some(d) => {
+            if d[0..4] == *b"Exif" {
+                exif = Some(read_exif_section(d)?);
+            }
+
+            if d[0..4] == *b"http" {
+                xmp = Some(String::from_utf8_lossy(&d).to_string());
+            }
+        }
+        _ => {}
+    }
 
     let comment = sections
         .iter()
@@ -195,17 +204,13 @@ pub fn read_jpeg(data: &[u8]) -> Result<Jpeg, JpegError> {
         .map(|(_, d)| String::from_utf8_lossy(d).to_string())
         .next();
 
-    Ok(Jpeg { comment, exif })
+    Ok(Jpeg { comment, exif, xmp })
 }
 
 #[cfg(test)]
 mod tests {
     use super::read_jpeg;
-    use crate::{
-        get_tag_value,
-        tiff::{Tiff, TiffTag},
-        utils::Endianness,
-    };
+    use crate::{get_tag_value, tiff::TiffTag, utils::Endianness};
     use std::fs;
 
     #[test]
@@ -270,19 +275,6 @@ mod tests {
     }
 
     #[test]
-    fn test_no_exif_only_comment() {
-        let data = fs::read("test_images/only_comment.jpg").unwrap();
-        let jpeg = read_jpeg(&data).unwrap();
-
-        assert!(jpeg.exif.is_none());
-
-        assert_eq!(
-            jpeg.comment,
-            Some("..and henceforth, shall he be named Frank, for he is a pumpkin.".to_string())
-        );
-    }
-
-    #[test]
     fn test_gps_data() {
         let data = fs::read("test_images/gps.jpeg").unwrap();
         let jpeg = read_jpeg(&data).unwrap();
@@ -335,5 +327,30 @@ mod tests {
             get_tag_value!(exif_data.tags, TiffTag::GPSDateStamp).unwrap(),
             "2008:10:23",
         )
+    }
+
+    #[test]
+    fn test_no_exif_only_comment() {
+        let data = fs::read("test_images/only_comment.jpg").unwrap();
+        let jpeg = read_jpeg(&data).unwrap();
+
+        assert!(jpeg.exif.is_none());
+
+        assert_eq!(
+            jpeg.comment,
+            Some("..and henceforth, shall he be named Frank, for he is a pumpkin.".to_string())
+        );
+    }
+
+    #[test]
+    fn test_no_exif_only_xmp() {
+        let data = fs::read("test_images/no_exif_only_xmp.jpeg").unwrap();
+        let jpeg = read_jpeg(&data).unwrap();
+
+        assert!(jpeg.exif.is_none());
+
+        let xmp = jpeg.xmp.unwrap();
+
+        assert!(xmp.starts_with("http://ns.adobe.com/xap/1.0/\0<?xpacket"));
     }
 }
