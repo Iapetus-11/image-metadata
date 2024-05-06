@@ -1,5 +1,7 @@
 use std::io::{Cursor, Read};
 
+use crate::{read_unpack, unpack};
+
 use super::utils::{vec_to_array, Endianness};
 
 #[derive(Debug, PartialEq, Copy, Clone)]
@@ -257,7 +259,7 @@ pub enum TiffTag {
 #[macro_export]
 macro_rules! get_tag_value {
     ($tiff_tags:expr, $tag_variant:path) => {
-        $tiff_tags.iter().find_map(|tag| match tag {
+        $tiff_tags.iter().find_map(|tag: &TiffTag| match tag {
             $tag_variant(value) => Some(value),
             _ => None,
         })
@@ -583,76 +585,30 @@ fn read_ifd_entry_values(
         values.push(match value_type {
             1 => IFDEntryValue::BYTE(buf[0]),
             2 => IFDEntryValue::ASCII(buf[0]),
-            3 => {
-                let data = [buf[0], buf[1]];
-                IFDEntryValue::SHORT(match endianness {
-                    Endianness::Big => u16::from_be_bytes(data),
-                    Endianness::Little => u16::from_le_bytes(data),
-                })
-            }
-            4 => {
-                let data = [buf[0], buf[1], buf[2], buf[3]];
-                IFDEntryValue::LONG(match endianness {
-                    Endianness::Big => u32::from_be_bytes(data),
-                    Endianness::Little => u32::from_le_bytes(data),
-                })
-            }
+            3 => IFDEntryValue::SHORT(unpack!(vec_to_array(buf)?, u16, endianness)),
+            4 => IFDEntryValue::LONG(unpack!(vec_to_array(buf)?, u32, endianness)),
             5 => {
                 let data = (
                     [buf[0], buf[1], buf[2], buf[3]],
                     [buf[4], buf[5], buf[6], buf[7]],
                 );
-                let (a, b) = match endianness {
-                    Endianness::Big => (u32::from_be_bytes(data.0), u32::from_be_bytes(data.1)),
-                    Endianness::Little => (u32::from_le_bytes(data.0), u32::from_le_bytes(data.1)),
-                };
 
-                IFDEntryValue::RATIONAL(a, b)
+                IFDEntryValue::RATIONAL(unpack!(data.0, u32, endianness), unpack!(data.1, u32, endianness))
             }
             6 => IFDEntryValue::SBYTE(buf[0] as i8),
             7 => IFDEntryValue::UNDEFINED(buf[0]),
-            8 => {
-                let data = [buf[0], buf[1]];
-                IFDEntryValue::SSHORT(match endianness {
-                    Endianness::Big => i16::from_be_bytes(data),
-                    Endianness::Little => i16::from_le_bytes(data),
-                })
-            }
-            9 => {
-                let data = [buf[0], buf[1], buf[2], buf[3]];
-                IFDEntryValue::SLONG(match endianness {
-                    Endianness::Big => i32::from_be_bytes(data),
-                    Endianness::Little => i32::from_be_bytes(data),
-                })
-            }
+            8 => IFDEntryValue::SSHORT(unpack!(vec_to_array(buf)?, i16, endianness)),
+            9 => IFDEntryValue::SLONG(unpack!(vec_to_array(buf)?, i32, endianness)),
             10 => {
                 let data = (
                     [buf[0], buf[1], buf[2], buf[3]],
                     [buf[4], buf[5], buf[6], buf[7]],
                 );
-                let (a, b) = match endianness {
-                    Endianness::Big => (i32::from_be_bytes(data.0), i32::from_be_bytes(data.1)),
-                    Endianness::Little => (i32::from_le_bytes(data.0), i32::from_le_bytes(data.1)),
-                };
 
-                IFDEntryValue::SRATIONAL(a, b)
+                IFDEntryValue::SRATIONAL(unpack!(data.0, i32, endianness), unpack!(data.1, i32, endianness))
             }
-            11 => {
-                let data = [buf[0], buf[1], buf[2], buf[3]];
-                IFDEntryValue::FLOAT(match endianness {
-                    Endianness::Big => f32::from_be_bytes(data),
-                    Endianness::Little => f32::from_le_bytes(data),
-                })
-            }
-            12 => {
-                let data = [
-                    buf[0], buf[1], buf[2], buf[3], buf[4], buf[5], buf[6], buf[7],
-                ];
-                IFDEntryValue::DOUBLE(match endianness {
-                    Endianness::Big => f64::from_be_bytes(data),
-                    Endianness::Little => f64::from_le_bytes(data),
-                })
-            }
+            11 => IFDEntryValue::FLOAT(unpack!(vec_to_array(buf)?, f32, endianness)),
+            12 => IFDEntryValue::DOUBLE(unpack!(vec_to_array(buf)?, f64, endianness)),
             unknown => return Err(TiffError(format!("Encountered unknown TIFF value type: {}", unknown))),
         })
     }
@@ -661,32 +617,9 @@ fn read_ifd_entry_values(
 }
 
 pub fn read_ifd_entry(cursor: &mut Cursor<Vec<u8>>, endianness: &Endianness) -> Result<IFDEntry, TiffError> {
-    let tag = {
-        let mut buf = [0_u8; 2];
-        cursor.read_exact(&mut buf).unwrap();
-        match endianness {
-            Endianness::Big => u16::from_be_bytes(buf),
-            Endianness::Little => u16::from_le_bytes(buf),
-        }
-    };
-
-    let value_type = {
-        let mut buf = [0_u8; 2];
-        cursor.read_exact(&mut buf).unwrap();
-        match endianness {
-            Endianness::Big => u16::from_be_bytes(buf),
-            Endianness::Little => u16::from_le_bytes(buf),
-        }
-    };
-
-    let value_count = {
-        let mut buf = [0_u8; 4];
-        cursor.read_exact(&mut buf).unwrap();
-        match endianness {
-            Endianness::Big => u32::from_be_bytes(buf),
-            Endianness::Little => u32::from_le_bytes(buf),
-        }
-    } as usize;
+    let tag = read_unpack!(cursor, u16, endianness);
+    let value_type = read_unpack!(cursor, u16, endianness);
+    let value_count = read_unpack!(cursor, u32, endianness) as usize;
 
     let value_type_size = get_tiff_value_type_size(value_type)?;
     let size_of_all_values = value_count * value_type_size;
@@ -695,14 +628,7 @@ pub fn read_ifd_entry(cursor: &mut Cursor<Vec<u8>>, endianness: &Endianness) -> 
 
     // If the size of all values is >4 then we need to seek to that position
     if size_of_all_values > 4 {
-        let value_offset = {
-            let mut buf = [0_u8; 4];
-            cursor.read_exact(&mut buf).unwrap();
-            match endianness {
-                Endianness::Big => u32::from_be_bytes(buf),
-                Endianness::Little => u32::from_le_bytes(buf),
-            }
-        };
+        let value_offset = read_unpack!(cursor, u32, endianness);
         cursor.set_position(value_offset as u64)
     }
 
@@ -715,14 +641,7 @@ pub fn read_ifd_entry(cursor: &mut Cursor<Vec<u8>>, endianness: &Endianness) -> 
 }
 
 pub fn read_ifd(cursor: &mut Cursor<Vec<u8>>, endianness: &Endianness) -> Result<Vec<IFDEntry>, TiffError> {
-    let ifd_entry_count = {
-        let mut buf = [0_u8; 2];
-        cursor.read_exact(&mut buf).unwrap();
-        match endianness {
-            Endianness::Big => u16::from_be_bytes(buf),
-            Endianness::Little => u16::from_le_bytes(buf),
-        }
-    };
+    let ifd_entry_count = read_unpack!(cursor, u16, endianness);
 
     let mut entries: Vec<IFDEntry> = vec![];
     for _ in 0..ifd_entry_count {
@@ -740,6 +659,12 @@ pub struct Tiff {
 
 #[derive(Debug)]
 pub struct TiffError(pub String);
+
+impl From<String> for TiffError {
+    fn from(value: String) -> Self {
+        TiffError(value)
+    }
+}
 
 fn ifd_entries_to_tiff_tags(entries: Vec<IFDEntry>) -> Result<Vec<TiffTag>, TiffError> {
     let mut tags: Vec<TiffTag> = vec![];
@@ -767,14 +692,7 @@ pub fn read_tiff(cursor: &mut Cursor<Vec<u8>>) -> Result<Tiff, TiffError> {
         }
     };
 
-    let magic_number = {
-        let mut data = [0_u8; 2];
-        cursor.read_exact(&mut data).unwrap();
-        match endianness {
-            Endianness::Big => u16::from_be_bytes(data),
-            Endianness::Little => u16::from_le_bytes(data),
-        }
-    };
+    let magic_number = read_unpack!(cursor, u16, endianness);
     if magic_number != 42 {
         return Err(TiffError(format!(
             "Expected magic number to be 42, but got {} instead",
@@ -783,14 +701,7 @@ pub fn read_tiff(cursor: &mut Cursor<Vec<u8>>) -> Result<Tiff, TiffError> {
     }
 
     loop {
-        let offset = {
-            let mut buf = [0_u8; 4];
-            cursor.read_exact(&mut buf).unwrap();
-            match endianness {
-                Endianness::Big => u32::from_be_bytes(buf),
-                Endianness::Little => u32::from_le_bytes(buf),
-            }
-        };
+        let offset = read_unpack!(cursor, u32, endianness);
 
         // Offset of zero means no more IFDs
         if offset == 0 {
