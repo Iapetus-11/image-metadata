@@ -97,7 +97,6 @@ fn get_jpeg_sections(data: &[u8]) -> Vec<(JpegMarker, Vec<u8>)> {
     cursor.seek(SeekFrom::Start(2)).unwrap();
 
     let data_len = data.len() as u64;
-    let mut size: usize;
 
     let mut sections: Vec<(JpegMarker, Vec<u8>)> = Vec::new();
 
