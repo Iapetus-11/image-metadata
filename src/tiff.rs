@@ -210,6 +210,7 @@ pub enum TiffTag {
     Software(String),
     DateTime(String),
     Artist(String),
+    HostComputer(String),
 
     Copyright(String),
     ExposureTime(String),
@@ -252,6 +253,8 @@ pub enum TiffTag {
     Saturation(String),
     Sharpness(String),
     SubjectDistanceRange(String),
+    LensMake(String),
+    LensModel(String),
     
     // This enum is incomplete and includes tags I found interesting/encountered while testing
 }
@@ -377,6 +380,7 @@ impl TryFrom<IFDEntry> for TiffTag {
             305 => Ok(TiffTag::Software(entry.try_into()?)),
             306 => Ok(TiffTag::DateTime(entry.try_into()?)),
             315 => Ok(TiffTag::Artist(entry.try_into()?)),
+            316 => Ok(TiffTag::HostComputer(entry.try_into()?)),
 
             33432 => Ok(TiffTag::Copyright(entry.try_into()?)),
             33434 => Ok(TiffTag::ExposureTime(get_rational_repr_from_ifd_entry(entry)?)),
@@ -563,6 +567,8 @@ impl TryFrom<IFDEntry> for TiffTag {
                 3 => "Distant view",
                 _ => "Invalid",
             }.to_string())),
+            42035 => Ok(TiffTag::LensMake(entry.try_into()?)),
+            42036 => Ok(TiffTag::LensModel(entry.try_into()?)),
 
             _ => Ok(TiffTag::Unknown(entry)),
         }
