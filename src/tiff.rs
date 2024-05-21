@@ -739,3 +739,23 @@ pub fn read_tiff(cursor: &mut Cursor<Vec<u8>>) -> Result<Tiff, TiffError> {
 
     Ok(Tiff { tags, endianness })
 }
+
+pub fn read_exif_section(data: &[u8]) -> Result<Tiff, TiffError> {
+    if data[0..4] != *b"Exif" {
+        return Err(TiffError(format!(
+            "Expected 'Exif' but got {} instead",
+            String::from_utf8_lossy(&data[0..4])
+        )));
+    }
+
+    if data[4..6] != [0, 0] {
+        return Err(TiffError(format!(
+            "Expected [0, 0] but got {:?} instead",
+            data[4..6].to_vec()
+        )));
+    }
+
+    let mut cursor = Cursor::new(data[6..].to_vec());
+
+    Ok(read_tiff(&mut cursor)?)
+}

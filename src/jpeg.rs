@@ -1,6 +1,10 @@
 use std::io::{Cursor, Read, Seek, SeekFrom};
 
-use crate::{read_unpack, tiff::Tiff, utils::Endianness};
+use crate::{
+    read_unpack,
+    tiff::{read_exif_section, Tiff},
+    utils::Endianness,
+};
 
 use super::tiff;
 
@@ -150,29 +154,6 @@ fn get_jpeg_sections(data: &[u8]) -> Vec<(JpegMarker, Vec<u8>)> {
     sections
 }
 
-fn read_exif_section(data: &[u8]) -> Result<tiff::Tiff, JpegError> {
-    if data[0..4] != *b"Exif" {
-        return Err(JpegError(format!(
-            "Expected 'Exif' but got {} instead",
-            String::from_utf8_lossy(&data[0..4])
-        )));
-    }
-
-    if data[4..6] != [0, 0] {
-        return Err(JpegError(format!(
-            "Expected [0, 0] but got {:?} instead",
-            data[4..6].to_vec()
-        )));
-    }
-
-    let mut cursor = Cursor::new(data[6..].to_vec());
-
-    match tiff::read_tiff(&mut cursor) {
-        Ok(tiff) => Ok(tiff),
-        Err(err) => Err(JpegError(err.0)),
-    }
-}
-
 pub fn read_jpeg(data: &[u8]) -> Result<Jpeg, JpegError> {
     let sections = get_jpeg_sections(data);
 
@@ -187,7 +168,10 @@ pub fn read_jpeg(data: &[u8]) -> Result<Jpeg, JpegError> {
     match app1_section {
         Some(d) => {
             if d[0..4] == *b"Exif" {
-                exif = Some(read_exif_section(d)?);
+                exif = match read_exif_section(d) {
+                    Ok(t) => Some(t),
+                    Err(m) => return Err(JpegError(m.0)),
+                }
             }
 
             if d[0..4] == *b"http" {
