@@ -1,7 +1,9 @@
 use std::{env, fs};
 
+use heif::read_heif;
 use utils::{determine_file_kind, FileKind};
 
+mod heif;
 mod jpeg;
 mod tiff;
 mod utils;
@@ -16,7 +18,10 @@ fn main() {
 
     if file_type == FileKind::Jpeg {
         let jpeg = jpeg::read_jpeg(&file_data).unwrap();
-        println!("{:?}", jpeg);
+        println!("{:#?}", jpeg);
+    } else if file_type == FileKind::Heif {
+        let heif = read_heif(file_data.clone());
+        println!("{:#?}", heif);
     } else {
         panic!("Unknown or unsupported file type :/ ");
     }
