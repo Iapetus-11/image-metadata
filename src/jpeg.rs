@@ -72,30 +72,6 @@ impl From<u8> for JpegMarker {
     }
 }
 
-impl Into<u8> for JpegMarker {
-    fn into(self) -> u8 {
-        match self {
-            JpegMarker::SOF0 => 0xC0,
-            JpegMarker::SOF1 => 0xC1,
-            JpegMarker::SOF2 => 0xC2,
-            JpegMarker::SOF3 => 0xC3,
-            JpegMarker::DHT => 0xC4,
-            JpegMarker::RST0 => 0xD0,
-            JpegMarker::RST1 => 0xD1,
-            JpegMarker::RST2 => 0xD2,
-            JpegMarker::RST3 => 0xD3,
-            JpegMarker::APP0 => 0xE0,
-            JpegMarker::APP1 => 0xE1,
-            JpegMarker::APP2 => 0xE2,
-            JpegMarker::SOS => 0xDA,
-            JpegMarker::DQT => 0xDB,
-            JpegMarker::DRI => 0xDD,
-            JpegMarker::COM => 0xFE,
-            JpegMarker::UNKNOWN(unknown) => unknown,
-        }
-    }
-}
-
 fn get_jpeg_sections(data: &[u8]) -> Vec<(JpegMarker, Vec<u8>)> {
     let mut cursor = Cursor::new(data);
     cursor.seek(SeekFrom::Start(2)).unwrap();
@@ -175,7 +151,7 @@ pub fn read_jpeg(data: &[u8]) -> Result<Jpeg, JpegError> {
             }
 
             if d[0..4] == *b"http" {
-                xmp = Some(String::from_utf8_lossy(&d).to_string());
+                xmp = Some(String::from_utf8_lossy(d).to_string());
             }
         }
         _ => {}
