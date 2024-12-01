@@ -180,10 +180,25 @@ impl TryInto<Vec<f64>> for IFDEntry {
     }
 }
 
+/// TIFF tags.
+///
+/// See <https://www.loc.gov/preservation/digital/formats/content/tiff_tags.shtml>
 // TODO: Some tags have overlapping IDs because the other IFDs (EXIF, GPS) can just put whatever tag IDs they want
+#[non_exhaustive]
 #[derive(Debug)]
 pub enum TiffTag {
     Unknown(IFDEntry),
+
+    ImageWidth(u32),
+    ImageLength(u32), // also referred to as ImageHeight
+    BitsPerSample(u16),
+    PhotometricInterpretation(u16),
+    FillOrder(u16),
+    StripOffsets(u32),
+    SamplesPerPixel(u16),
+    RowsPerStrip(u32),
+    StripByteCounts(u32),
+    PlanarConfiguration(u16),
 
     GPSVersionID([u8; 4]),
     GPSLatitudeRef(String),
@@ -206,6 +221,8 @@ pub enum TiffTag {
     Orientation(u16),
     XResolution(f64),
     YResolution(f64),
+    XPosition(f64),
+    YPosition(f64),
     ResolutionUnit(String),
     Software(String),
     DateTime(String),
@@ -353,6 +370,9 @@ impl TryFrom<IFDEntry> for TiffTag {
             17 => Ok(TiffTag::GPSImgDirection(entry.try_into()?)),
             18 => Ok(TiffTag::GPSMapDatum(entry.try_into()?)),
             29 => Ok(TiffTag::GPSDateStamp(entry.try_into()?)),
+            256 => Ok(TiffTag::ImageWidth(get_ushort_or_ulong_from_entry(entry)?)),
+            257 => Ok(TiffTag::ImageLength(get_ushort_or_ulong_from_entry(entry)?)),
+            258 => Ok(TiffTag::BitsPerSample(entry.try_into()?)),
             259 => Ok(TiffTag::Compression(match <IFDEntry as TryInto<u16>>::try_into(entry)? {
                 1 => "No compression",
                 2 => "CCITT modified Huffman RLE",
@@ -365,11 +385,20 @@ impl TryFrom<IFDEntry> for TiffTag {
                 32773 => "PackBits",
                 _ => "Invalid/Unknown",
             }.to_string())),
+            262 => Ok(TiffTag::PhotometricInterpretation(entry.try_into()?)),
+            266 => Ok(TiffTag::FillOrder(entry.try_into()?)),
             270 => Ok(TiffTag::ImageDescription(entry.try_into()?)),
             271 => Ok(TiffTag::Make(entry.try_into()?)),
             272 => Ok(TiffTag::Model(entry.try_into()?)),
+            273 => Ok(TiffTag::StripOffsets(get_ushort_or_ulong_from_entry(entry)?)),
+            277 => Ok(TiffTag::SamplesPerPixel(entry.try_into()?)),
+            278 => Ok(TiffTag::RowsPerStrip(get_ushort_or_ulong_from_entry(entry)?)),
+            279 => Ok(TiffTag::StripByteCounts(get_ushort_or_ulong_from_entry(entry)?)),
             282 => Ok(TiffTag::XResolution(entry.try_into()?)),
             283 => Ok(TiffTag::YResolution(entry.try_into()?)),
+            284 => Ok(TiffTag::PlanarConfiguration(entry.try_into()?)),
+            286 => Ok(TiffTag::XPosition(entry.try_into()?)),
+            287 => Ok(TiffTag::YPosition(entry.try_into()?)),
             296 => Ok(TiffTag::ResolutionUnit(match <IFDEntry as TryInto<u16>>::try_into(entry)? {
                 1 => "none",
                 2 => "inch",
@@ -682,7 +711,7 @@ fn ifd_entries_to_tiff_tags(entries: Vec<IFDEntry>) -> Result<Vec<TiffTag>, Tiff
     Ok(tags)
 }
 
-pub fn read_tiff(cursor: &mut Cursor<Vec<u8>>) -> Result<Tiff, TiffError> {
+pub fn read_tiff_header(cursor: &mut Cursor<Vec<u8>>) -> Result<Endianness, TiffError> {
     let mut entries: Vec<IFDEntry> = Vec::new();
 
     let endianness = {
@@ -705,6 +734,14 @@ pub fn read_tiff(cursor: &mut Cursor<Vec<u8>>) -> Result<Tiff, TiffError> {
             magic_number,
         )));
     }
+
+    Ok(endianness)
+}
+
+pub fn read_tiff(cursor: &mut Cursor<Vec<u8>>) -> Result<Tiff, TiffError> {
+    let mut entries: Vec<IFDEntry> = Vec::new();
+
+    let endianness = read_tiff_header(cursor)?;
 
     loop {
         let offset = read_unpack!(cursor, u32, endianness);
@@ -758,4 +795,59 @@ pub fn read_exif_section(data: &[u8]) -> Result<Tiff, TiffError> {
     let mut cursor = Cursor::new(data[6..].to_vec());
 
     Ok(read_tiff(&mut cursor)?)
+}
+
+
+pub(crate) fn read_tiff_file(data: &[u8]) -> Result<Tiff, TiffError> {
+    let mut cursor = Cursor::new(data.to_vec());
+
+    Ok(read_tiff(&mut cursor)?)
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::{read_tiff_file, TiffTag};
+    use crate::{get_tag_value, utils::Endianness};
+    use std::fs;
+
+    #[test]
+    fn test_read_tiff() {
+        let data = fs::read("test_images/test.tif").unwrap();
+
+        let tiff = read_tiff_file(&data).unwrap();
+
+        assert_eq!(tiff.endianness, Endianness::Little);
+
+        eprintln!("{:?}", tiff.tags);
+        assert_eq!(
+            *get_tag_value!(tiff.tags, TiffTag::ImageDescription).unwrap(),
+            "Created with GIMP",
+        );
+
+        assert_eq!(
+            *get_tag_value!(tiff.tags, TiffTag::ImageWidth).unwrap(),
+            1,
+        );
+
+        assert_eq!(
+            *get_tag_value!(tiff.tags, TiffTag::ImageLength).unwrap(),
+            1,
+        );
+
+        assert_eq!(
+            *get_tag_value!(tiff.tags, TiffTag::XResolution).unwrap(),
+            118.11000061035156,
+        );
+
+        assert_eq!(
+            *get_tag_value!(tiff.tags, TiffTag::YResolution).unwrap(),
+            118.11000061035156,
+        );
+
+        assert_eq!(
+            *get_tag_value!(tiff.tags, TiffTag::ResolutionUnit).unwrap(),
+            "centimeter",
+        );
+    }
 }

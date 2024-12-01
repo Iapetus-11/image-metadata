@@ -1,5 +1,5 @@
 # image_metadata
-An image metadata extractor written in Rust 🦀. Currently partially supports JPEGs and HEIC/HEIF files.
+An image metadata extractor written in Rust 🦀. Currently partially supports JPEGs, TIFFs, and HEIC/HEIF files.
 
 ## Example Use
 ```

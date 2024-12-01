@@ -22,6 +22,9 @@ fn main() {
     } else if file_type == FileKind::Heif {
         let heif = read_heif(file_data.clone());
         println!("{:#?}", heif);
+    } else if file_type == FileKind::Tiff {
+        let tiff = tiff::read_tiff_file(&file_data);
+        println!("{:#?}", tiff);
     } else {
         panic!("Unknown or unsupported file type :/ ");
     }

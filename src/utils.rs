@@ -4,6 +4,7 @@ use std::{
 };
 
 use crate::heif;
+use crate::tiff;
 
 #[derive(Debug, PartialEq)]
 pub enum Endianness {
@@ -16,6 +17,7 @@ pub enum FileKind {
     Jpeg,
     Png,
     Heif,
+    Tiff,
 }
 
 pub fn determine_file_kind(data: &[u8]) -> Option<FileKind> {
@@ -29,6 +31,13 @@ pub fn determine_file_kind(data: &[u8]) -> Option<FileKind> {
 
     {
         let mut cursor = Cursor::new(data.to_vec());
+
+        if let Ok(_) = tiff::read_tiff_header(&mut cursor) {
+            return Some(FileKind::Tiff);
+        }
+
+        cursor.set_position(0);
+
         let (atom_name, _) = heif::read_atom_header(&mut cursor);
 
         if atom_name.as_str() == "ftyp" {
@@ -101,4 +110,29 @@ pub fn get_nibbles(byte: u8) -> (u8, u8) {
     let b = (byte >> 4) & 0x0F;
 
     (a, b)
+}
+
+#[cfg(test)]
+mod test {
+    use std::fs;
+
+    use super::determine_file_kind;
+
+    #[test]
+    fn test_detect_jpeg() {
+        let data = fs::read("test_images/PaintTool_sample.jpeg").unwrap();
+        assert_eq!(determine_file_kind(&data), Some(super::FileKind::Jpeg));
+    }
+
+    #[test]
+    fn test_detect_heic() {
+        let data = fs::read("test_images/image1.heic").unwrap();
+        assert_eq!(determine_file_kind(&data), Some(super::FileKind::Heif));
+    }
+
+    #[test]
+    fn test_detect_tiff() {
+        let data = fs::read("test_images/test.tif").unwrap();
+        assert_eq!(determine_file_kind(&data), Some(super::FileKind::Tiff));
+    }
 }
